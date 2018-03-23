@@ -1,0 +1,107 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+
+    dependencies {
+        classpath 'com.netflix.nebula:nebula-dependency-recommender:5.1.0'
+    }
+}
+
+if (!project.hasProperty('bom_management')) {
+    ext.bom_management = 'plugin'
+}
+
+if(bom_management == 'plugin') {
+    apply plugin: 'nebula.dependency-recommender'
+}
+apply plugin: 'java'
+
+def repo = new File(projectDir, 'repo')
+
+task setupSampleBom {
+    repo.mkdirs()
+    setupSampleBomFile(repo, 'recommender')
+}
+
+task outputBomManagement {
+    println("Bom management is handled via: $bom_management")
+}
+
+task setupSettings {
+    def settingsFile = new File(projectDir, 'settings.gradle')
+    def enableExperimentalFeatures = 'gradle.experimentalFeatures.enable()'
+
+    if(bom_management == 'gradle') {
+        if(!settingsFile.text.contains(enableExperimentalFeatures)){
+            settingsFile << enableExperimentalFeatures
+        }
+    } else {
+        settingsFile.text = settingsFile.text.replace(enableExperimentalFeatures, '')
+    }
+}
+
+clean.finalizedBy setupSettings
+
+setupSampleBom.dependsOn outputBomManagement
+build.dependsOn setupSampleBom
+
+repositories {
+    jcenter()
+    maven { url "${repo.toURI().toURL()}" }
+}
+
+task listTestRuntime {
+  doFirst {
+    configurations.testRuntime.files.each { System.err.println(it) }
+  }
+}
+
+dependencies {
+    if(bom_management == 'gradle') {
+        compile 'sample:recommender:1.0'
+    }
+    compile "com.netflix.astyanax:astyanax-core"
+    compile 'org.springframework:spring-context:4.+'
+    testCompile 'org.springframework:spring-test:4.2.1.RELEASE'
+    testCompile "org.testng:testng"
+}
+
+if(bom_management == 'plugin') {
+    dependencyRecommendations {
+        mavenBom module: 'sample:recommender:1.0'
+    }
+}
+
+static def setupSampleBomFile(File file, String artifactName) {
+    def sampleFileContents = """\
+            <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+              <modelVersion>4.0.0</modelVersion>
+              <groupId>sample</groupId>
+              <artifactId>${artifactName}</artifactId>
+              <version>1.0</version>
+              <packaging>pom</packaging>
+
+              <dependencyManagement>
+                <dependencies>
+                  <dependency>
+                    <groupId>com.netflix.astyanax</groupId>
+                    <artifactId>astyanax-core</artifactId>
+                    <version>3.9.0</version>
+                  </dependency>
+                  <dependency>
+                    <groupId>org.testng</groupId>
+                    <artifactId>testng</artifactId>
+                    <version>6.14.3</version>
+                  </dependency>
+                </dependencies>
+              </dependencyManagement>
+            </project>
+        """.stripIndent()
+    String repoPath = File.separator + 'sample' + File.separator + artifactName + File.separator + '1.0'
+    def sample = new File(file, repoPath)
+    sample.mkdirs()
+    def sampleFile = new File(sample, artifactName + '-1.0.pom')
+    sampleFile.text = sampleFileContents
+}
